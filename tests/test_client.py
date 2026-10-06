@@ -4,7 +4,7 @@ import stat
 import httpx
 import pytest
 
-from youtube_mcp_server.client import YouTubeClient, YouTubeError, explain, save_token
+from youtube_mcp_server.client import YouTubeClient, YouTubeError, auth_hint, explain, save_token
 
 from .conftest import FakeYouTube
 
@@ -55,12 +55,12 @@ async def test_quota_error_is_explained(client, fake):
 
 def test_disabled_api_is_explained_from_error_details(tmp_path):
     response = error(403, "SERVICE_DISABLED", "YouTube Data API v3 has not been used", details=True)
-    assert "APIs & Services" in str(explain(403, response.json(), tmp_path))
+    assert "APIs & Services" in str(explain(403, response.json(), auth_hint(tmp_path)))
 
 
 def test_missing_scope_asks_to_authorise_again(tmp_path):
     response = error(403, "insufficientPermissions", "Insufficient Permission")
-    assert "youtube-mcp-server auth" in str(explain(403, response.json(), tmp_path))
+    assert "youtube-mcp-server auth" in str(explain(403, response.json(), auth_hint(tmp_path)))
 
 
 async def test_reads_are_retried_after_server_errors(client, fake):
@@ -108,3 +108,29 @@ def test_saved_token_is_private(tmp_path):
     assert json.loads(path.read_text()) == {"refresh_token": "x"}
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+
+
+ENV_ACCESS = {"client_id": "env-id", "client_secret": "env-secret", "refresh_token": "1//env"}
+
+
+async def test_access_from_the_environment_replaces_token_json(fake, tmp_path):
+    async with YouTubeClient(tmp_path / "token.json", credentials=ENV_ACCESS, transport=fake.transport()) as client:
+        await client.data("channels", part="id", mine="true")
+    assert fake.token_requests[0] == {**ENV_ACCESS, "grant_type": "refresh_token"}
+
+
+async def test_incomplete_access_in_the_environment_names_what_is_missing(fake, tmp_path):
+    partial = {**ENV_ACCESS, "refresh_token": ""}
+    async with YouTubeClient(tmp_path / "token.json", credentials=partial, transport=fake.transport()) as client:
+        with pytest.raises(YouTubeError) as caught:
+            await client.data("channels", part="id", mine="true")
+    assert "YOUTUBE_REFRESH_TOKEN" in str(caught.value)
+    assert not fake.token_requests
+
+
+async def test_revoked_access_from_the_environment_points_to_the_plugin_settings(fake, tmp_path):
+    fake.token_reply = (400, {"error": "invalid_grant"})
+    async with YouTubeClient(tmp_path / "token.json", credentials=ENV_ACCESS, transport=fake.transport()) as client:
+        with pytest.raises(YouTubeError) as caught:
+            await client.data("channels", part="id", mine="true")
+    assert "настройках плагина" in str(caught.value)

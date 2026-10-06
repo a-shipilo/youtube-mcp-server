@@ -1,0 +1,31 @@
+{
+  "name": "youtube",
+  "version": "0.2.0",
+  "description": "Комментарии, ответы, модерация и аналитика своего YouTube-канала",
+  "author": { "name": "a-shipilo" },
+  "homepage": "https://github.com/a-shipilo/youtube-mcp-server",
+  "license": "MIT",
+  "userConfig": {
+    "client_id": {
+      "type": "string",
+      "title": "Client ID OAuth-клиента",
+      "description": "YOUTUBE_CLIENT_ID из вывода youtube-mcp-server credentials (после youtube-mcp-server auth)",
+      "required": true,
+      "sensitive": false
+    },
+    "client_secret": {
+      "type": "string",
+      "title": "Client secret OAuth-клиента",
+      "description": "YOUTUBE_CLIENT_SECRET из вывода youtube-mcp-server credentials",
+      "required": true,
+      "sensitive": true
+    },
+    "refresh_token": {
+      "type": "string",
+      "title": "Refresh token канала",
+      "description": "YOUTUBE_REFRESH_TOKEN из вывода youtube-mcp-server credentials",
+      "required": true,
+      "sensitive": true
+    }
+  }
+}

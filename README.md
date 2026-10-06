@@ -82,10 +82,39 @@ uvx --from git+https://github.com/a-shipilo/youtube-mcp-server youtube-mcp-serve
 
 ### 3. Подключите сервер
 
-#### Claude Code
+#### Claude Code: плагин
+
+Репозиторий — ещё и маркетплейс плагинов Claude Code с плагином `youtube`. Доступ к каналу плагин хранит
+в своих настройках (секретные поля — в системной связке ключей), а не в файлах.
+
+1. Покажите значения доступа (после шага 2):
+
+   ```bash
+   uvx --from git+https://github.com/a-shipilo/youtube-mcp-server youtube-mcp-server credentials
+   ```
+
+   Команда выведет `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` и `YOUTUBE_REFRESH_TOKEN`. Сохраните их
+   в менеджере паролей: на другом компьютере повторять авторизацию не придётся.
+
+2. Добавьте маркетплейс и поставьте плагин:
+
+   ```bash
+   claude plugin marketplace add a-shipilo/youtube-mcp-server
+   claude plugin install youtube@youtube-mcp-server
+   ```
+
+   Или в Claude Code: `/plugin` → **Marketplaces** → добавить `a-shipilo/youtube-mcp-server`, затем
+   установить `youtube`. При включении плагин спросит три значения из шага 1.
+
+3. После этого `token.json` можно удалить: плагину он не нужен.
+
+Плагин подтверждает ответы и модерацию в чате (`YOUTUBE_CONFIRM_MODE=token`). Инструменты называются
+`mcp__plugin_youtube_youtube__*`.
+
+#### Claude Code: без плагина
 
 ```bash
-claude mcp add youtube -s user -- uvx --from git+https://github.com/a-shipilo/youtube-mcp-server@v0.1.0 youtube-mcp-server
+claude mcp add youtube -s user -- uvx --from git+https://github.com/a-shipilo/youtube-mcp-server@v0.2.0 youtube-mcp-server
 ```
 
 С папкой не по умолчанию добавьте `-e YOUTUBE_MCP_DIR=/путь/к/папке` перед `--`.
@@ -102,7 +131,7 @@ claude mcp add youtube -s user -- uvx --from git+https://github.com/a-shipilo/yo
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/a-shipilo/youtube-mcp-server@v0.1.0",
+        "git+https://github.com/a-shipilo/youtube-mcp-server@v0.2.0",
         "youtube-mcp-server"
       ]
     }
@@ -112,7 +141,7 @@ claude mcp add youtube -s user -- uvx --from git+https://github.com/a-shipilo/yo
 
 3. Полностью перезапустите Claude Desktop.
 
-`@v0.1.0` фиксирует версию. Чтобы всегда брать последнюю версию из `main`, уберите `@v0.1.0`.
+`@v0.2.0` фиксирует версию. Чтобы всегда брать последнюю версию из `main`, уберите `@v0.2.0`.
 Для обновления добавьте в `args` перед `--from` флаг `--refresh`.
 
 Если в логах `spawn uvx ENOENT`, укажите полный путь к uvx (узнать его: `which uvx`),
@@ -123,6 +152,7 @@ claude mcp add youtube -s user -- uvx --from git+https://github.com/a-shipilo/yo
 | Переменная | По умолчанию | Описание |
 |---|---|---|
 | `YOUTUBE_MCP_DIR` | `~/.config/youtube-mcp-server` | папка с JSON OAuth-клиента и `token.json` |
+| `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN` | — | доступ к каналу вместо `token.json` (их передаёт плагин); значения показывает `credentials` |
 | `YOUTUBE_CONFIRM_MODE` | `auto` | как подтверждаются ответы и модерация: `auto`, `elicitation`, `token` |
 
 Без авторизации сервер всё равно стартует, а инструменты вернут понятную ошибку с командой `auth`.
@@ -134,6 +164,7 @@ claude mcp add youtube -s user -- uvx --from git+https://github.com/a-shipilo/yo
 | `youtube-mcp-server` | запускает MCP-сервер (stdio) |
 | `youtube-mcp-server auth [--client-secret PATH]` | разрешает доступ к каналу в браузере и сохраняет его |
 | `youtube-mcp-server check` | показывает канал, к которому есть доступ |
+| `youtube-mcp-server credentials` | выводит сохранённый доступ как `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN` |
 | `youtube-mcp-server --version` | версия |
 
 ## Privacy
@@ -143,14 +174,14 @@ claude mcp add youtube -s user -- uvx --from git+https://github.com/a-shipilo/yo
 - **Куда уходят запросы.** Только в Google: YouTube Data API, YouTube Analytics API и OAuth
   (`googleapis.com`, `youtubeanalytics.googleapis.com`, `oauth2.googleapis.com`). Никаким третьим
   сторонам сервер данные канала не передаёт.
-- **Где хранится доступ.** Refresh token лежит только локально, в `token.json` в `YOUTUBE_MCP_DIR`,
-  с правами `600` (папка — `700`). Access token живёт в памяти процесса и на диск не пишется.
+- **Где хранится доступ.** Refresh token лежит только локально: в `token.json` в `YOUTUBE_MCP_DIR`,
+  с правами `600` (папка — `700`), или, с плагином Claude Code, в настройках плагина. Access token живёт в памяти процесса и на диск не пишется.
   Сервер не логирует комментарии, ответы и статистику.
 - **Что видит MCP-клиент.** Результаты инструментов (комментарии, статистика) получает клиент, который
   их вызвал, например Claude, и они попадают в ваш разговор с моделью по правилам этого клиента.
 - **Права.** Сервер запрашивает `youtube.force-ssl` (чтение и запись комментариев канала)
   и `yt-analytics.readonly`. Публикация и модерация выполняются только после вашего подтверждения.
-- **Как отозвать доступ.** Удалите `token.json` и отзовите доступ приложения на
+- **Как отозвать доступ.** Удалите `token.json` (или плагин) и отзовите доступ приложения на
   [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
 
 *English: the server runs locally and talks only to Google APIs; it has no backend or telemetry. The refresh

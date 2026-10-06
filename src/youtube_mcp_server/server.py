@@ -17,7 +17,7 @@ from . import __version__
 from .analytics import register_analytics_tools
 from .approval import APPROVAL_MODES, ApprovalGate
 from .auth import authorize
-from .client import DEFAULT_DIR, YouTubeClient, YouTubeError
+from .client import DEFAULT_DIR, ENV_CREDENTIALS, YouTubeClient, YouTubeError, credentials_from_env, load_token
 from .comments import READ, register_comment_tools
 from .schema import PlainSchemaFastMCP
 
@@ -127,11 +127,12 @@ def build_from_env() -> FastMCP:
     if mode not in APPROVAL_MODES:
         raise SystemExit(f"YOUTUBE_CONFIRM_MODE: допустимые значения — {', '.join(APPROVAL_MODES)}")
     # Without a token the server still starts: tools then explain how to authorise.
-    return create_server(YouTubeClient(config_dir() / "token.json"), ApprovalGate(mode))  # type: ignore[arg-type]
+    client = YouTubeClient(config_dir() / "token.json", credentials=credentials_from_env())
+    return create_server(client, ApprovalGate(mode))  # type: ignore[arg-type]
 
 
 async def show_channel() -> int:
-    async with YouTubeClient(config_dir() / "token.json") as client:
+    async with YouTubeClient(config_dir() / "token.json", credentials=credentials_from_env()) as client:
         try:
             found = await client.channel()
         except YouTubeError as exc:
@@ -154,7 +155,20 @@ def run_auth(client_secret: Path | None) -> int:
         print(exc, file=sys.stderr)
         return 1
     print(f"Доступ сохранён в {token}")
+    print("Значения для настроек плагина Claude Code покажет: youtube-mcp-server credentials")
     return asyncio.run(show_channel())
+
+
+def show_credentials() -> int:
+    """Print the saved access as environment variables: for the plugin's settings or a password manager."""
+    try:
+        token = load_token(config_dir() / "token.json")
+    except YouTubeError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    for key, var in ENV_CREDENTIALS.items():
+        print(f"{var}={token[key]}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -174,6 +188,11 @@ def main(argv: list[str] | None = None) -> None:
         help="JSON OAuth-клиента Google типа Desktop app (по умолчанию client_secret*.json из YOUTUBE_MCP_DIR)",
     )
     commands.add_parser("check", help="показать канал, к которому есть доступ")
+    commands.add_parser(
+        "credentials",
+        help="вывести сохранённый доступ как YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET и YOUTUBE_REFRESH_TOKEN "
+        "(для настроек плагина или менеджера паролей)",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -181,6 +200,8 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(run_auth(args.client_secret))
     if args.command == "check":
         raise SystemExit(asyncio.run(show_channel()))
+    if args.command == "credentials":
+        raise SystemExit(show_credentials())
     build_from_env().run("stdio")
 
 

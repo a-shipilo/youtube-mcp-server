@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "youtube": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/a-shipilo/youtube-mcp-server@v0.2.0", "youtube-mcp-server"],
+      "env": {
+        "YOUTUBE_CLIENT_ID": "${user_config.client_id}",
+        "YOUTUBE_CLIENT_SECRET": "${user_config.client_secret}",
+        "YOUTUBE_REFRESH_TOKEN": "${user_config.refresh_token}",
+        "YOUTUBE_CONFIRM_MODE": "token"
+      }
+    }
+  }
+}

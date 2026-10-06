@@ -22,6 +22,12 @@ SCOPES = (
 )
 DEFAULT_DIR = Path("~/.config/youtube-mcp-server")
 AUTH_COMMAND = "uvx --from git+https://github.com/a-shipilo/youtube-mcp-server youtube-mcp-server auth"
+# The same access as token.json, given as environment variables (the Claude Code plugin passes its settings this way)
+ENV_CREDENTIALS = {
+    "client_id": "YOUTUBE_CLIENT_ID",
+    "client_secret": "YOUTUBE_CLIENT_SECRET",
+    "refresh_token": "YOUTUBE_REFRESH_TOKEN",
+}
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 REASONS = {
@@ -55,6 +61,19 @@ def auth_hint(directory: Path) -> str:
     return f"Пройдите авторизацию: {prefix}{AUTH_COMMAND}"
 
 
+def env_hint() -> str:
+    return (
+        f"Пройдите авторизацию заново ({AUTH_COMMAND}), покажите новые значения командой "
+        "youtube-mcp-server credentials и обновите их в настройках плагина."
+    )
+
+
+def credentials_from_env() -> dict[str, str] | None:
+    """Access from YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET and YOUTUBE_REFRESH_TOKEN; None when none is set."""
+    values = {key: os.environ.get(var, "").strip() for key, var in ENV_CREDENTIALS.items()}
+    return values if any(values.values()) else None
+
+
 def load_token(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text())
@@ -76,7 +95,7 @@ def save_token(path: Path, data: dict[str, Any]) -> None:
     path.chmod(0o600)
 
 
-def explain(status: int, body: Any, token_dir: Path) -> YouTubeError:
+def explain(status: int, body: Any, reauth: str) -> YouTubeError:
     error = body.get("error") if isinstance(body, dict) else None
     if not isinstance(error, dict):
         return YouTubeError(f"YouTube API ответил HTTP {status}", status=status)
@@ -86,10 +105,7 @@ def explain(status: int, body: Any, token_dir: Path) -> YouTubeError:
     ]
     reasons = [reason for reason in reasons if reason]
     reason = next((r for r in reasons if r in REASONS or r in SCOPE_REASONS), reasons[0] if reasons else None)
-    if reason in SCOPE_REASONS:
-        hint = f"У сохранённого доступа не хватает прав. {auth_hint(token_dir)}"
-    else:
-        hint = REASONS.get(reason or "")
+    hint = f"У сохранённого доступа не хватает прав. {reauth}" if reason in SCOPE_REASONS else REASONS.get(reason or "")
     text = f"{hint} (YouTube: {message})" if hint else f"YouTube API: {message}"
     return YouTubeError(text, status=status, reason=reason)
 
@@ -108,12 +124,14 @@ class YouTubeClient:
         self,
         token_file: Path,
         *,
+        credentials: dict[str, str] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         retries: int = 2,
         retry_delay: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.token_file = token_file
+        self.credentials = credentials  # from the environment; token_file is used without them
         self.retries = retries
         self.retry_delay = retry_delay
         self._clock = clock
@@ -139,8 +157,19 @@ class YouTubeClient:
             assert self._access_token is not None
             return self._access_token
 
+    def _reauth(self) -> str:
+        return env_hint() if self.credentials is not None else auth_hint(self.token_file.parent)
+
+    def _token(self) -> dict[str, Any]:
+        if self.credentials is None:
+            return load_token(self.token_file)
+        missing = [ENV_CREDENTIALS[key] for key, value in self.credentials.items() if not value]
+        if missing:
+            raise YouTubeError(f"Не задано: {', '.join(missing)}. Нужны все три значения доступа. {env_hint()}")
+        return self.credentials
+
     async def _refresh(self) -> None:
-        token = load_token(self.token_file)
+        token = self._token()
         try:
             response = await self._http.post(
                 token.get("token_uri") or TOKEN_URL,
@@ -159,7 +188,7 @@ class YouTubeClient:
             if error == "invalid_grant":
                 raise YouTubeError(
                     "Google отклонил сохранённый доступ: его отозвали или он истёк (у приложения в статусе "
-                    f"Testing доступ живёт 7 дней). {auth_hint(self.token_file.parent)}"
+                    f"Testing доступ живёт 7 дней). {self._reauth()}"
                 )
             detail = (body.get("error_description") or error) if isinstance(body, dict) else None
             raise YouTubeError(f"Google не выдал токен доступа: {detail or f'HTTP {response.status_code}'}")
@@ -198,7 +227,7 @@ class YouTubeClient:
                 continue
             data = _json(response)
             if response.is_error:
-                raise explain(response.status_code, data, self.token_file.parent)
+                raise explain(response.status_code, data, self._reauth())
             return data if isinstance(data, dict) else {}
 
     async def data(self, resource: str, *, method: str = "GET", body: Any = None, **params: Any) -> dict[str, Any]:
@@ -216,7 +245,7 @@ class YouTubeClient:
             if not result.get("items"):
                 raise YouTubeError(
                     "У авторизованного аккаунта Google нет YouTube-канала. Пройдите авторизацию заново и "
-                    f"выберите аккаунт канала. {auth_hint(self.token_file.parent)}"
+                    f"выберите аккаунт канала. {self._reauth()}"
                 )
             self._channel = result["items"][0]
         return self._channel

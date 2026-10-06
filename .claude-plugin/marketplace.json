@@ -1,0 +1,14 @@
+{
+  "name": "youtube-mcp-server",
+  "owner": {
+    "name": "a-shipilo"
+  },
+  "description": "MCP-сервер для своего YouTube-канала: комментарии, ответы, модерация и аналитика",
+  "plugins": [
+    {
+      "name": "youtube",
+      "source": "./",
+      "description": "Комментарии, ответы, модерация и аналитика своего YouTube-канала"
+    }
+  ]
+}
